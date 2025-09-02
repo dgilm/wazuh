@@ -1479,13 +1479,25 @@ bool w_logreader_journald_merge(logreader ** logf_ptr, size_t src_index) {
     bool dst_has_filters = logr[dst_index].journal_log->filters != NULL
                            && logr[dst_index].journal_log->filters[0] != NULL;
 
-    // Disable filter is already disabled or if any don't have filters
-    if (!src_has_filters || !dst_has_filters) {
+    // Only disable filters if BOTH blocks have no filters
+    // If at least one has filters, we use the union of non-empty filters
+    if (!src_has_filters && !dst_has_filters) {
+        // Both have no filters - keep the "collect everything" behavior
         logr[dst_index].journal_log->disable_filters = true;
-        mwarn(LOGCOLLECTOR_JOURNAL_CONFG_DISABLE_FILTER);
+    } else if (src_has_filters && !dst_has_filters) {
+        // Source has filters, destination doesn't - use source filters only
+        // Don't disable filters, just skip adding from destination
+        logr[dst_index].journal_log->disable_filters = false;
+    } else if (!src_has_filters && dst_has_filters) {
+        // Destination has filters, source doesn't - keep destination filters only
+        // Don't disable filters, source adds nothing to the union
+        logr[dst_index].journal_log->disable_filters = false;
+    } else {
+        // Both have filters - normal union operation
+        logr[dst_index].journal_log->disable_filters = false;
     }
 
-    // Move the filters from the src_index to the dst_index
+    // Move the filters from the src_index to the dst_index if source has filters
     if (src_has_filters) {
         w_journal_add_filter_to_list(&(logr[dst_index].journal_log->filters), logr[src_index].journal_log->filters[0]);
         logr[src_index].journal_log->filters[0] = NULL; // Prevent the filter from being freed
